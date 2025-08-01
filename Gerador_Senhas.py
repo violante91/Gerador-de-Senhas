@@ -1,3 +1,3 @@
 import secrets
-senha = secrets.token_hex (15)
+senha = secrets.token_hex (13)
 print(senha)
