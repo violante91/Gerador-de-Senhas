@@ -203,7 +203,7 @@ class TokenizadorNLP:
 if __name__ == "__main__":
     tokenizador = TokenizadorNLP()
     
-    # Texto de exemplo
+    # Cole aqui o texto que será analisado:
     texto_exemplo = """
     Olá, eu sou Patrícia, venho falar um pouquinho sobre a minha vida, de onde eu vim.
 
