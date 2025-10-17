@@ -1,0 +1,6 @@
+work_year;experience_level;employment_type;job_title;salary;salary_currency;salary_in_usd;employee_residence;remote_ratio;company_location;company_size
+2025.0;SE;FT;Solutions Engineer;214000;USD;214000;US;100;US;M
+2025.0;SE;FT;Solutions Engineer;136000;USD;136000;US;100;US;M
+2025.0;MI;FT;Data Engineer;158800;USD;158800;AU;0;AU;M
+2025.0;MI;FT;Data Engineer;139200;USD;139200;AU;0;AU;M
+2025.0;EN;FT;Data Engineer;90000;USD;90000;US;0;US;M

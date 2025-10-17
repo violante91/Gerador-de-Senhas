@@ -1,0 +1,5 @@
+import pandas as pd
+df = pd.read_csv('https://github.com/violante91/Gerador-de-Senhas/blob/main/2/projeto.1.csv')
+
+
+
