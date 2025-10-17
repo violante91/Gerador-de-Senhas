@@ -3,196 +3,217 @@ import time
 import os
 import tempfile
 import shutil
-import stat
-from pathlib import Path
+import threading
+from collections import defaultdict
 
-def abrir_executar_e_abrir_temp():
-    """Abre a pasta temp usando Windows + R"""
-    print("Abrindo pasta de arquivos temporários...")
-    # Pressiona Windows + R para abrir o Executar
-    pyautogui.hotkey('win', 'r')
-    time.sleep(1)  # espera a janela abrir
-
-    # Digita '%temp%' e pressiona Enter
-    pyautogui.write('%temp%', interval=0.05)
-    pyautogui.press('enter')
-    time.sleep(2)  # espera a pasta abrir
-
-def selecionar_e_excluir_arquivos():
-    """Tenta excluir arquivos via interface gráfica"""
-    print("Selecionando arquivos via interface...")
+class TempCleaner:
+    def __init__(self, callback=None):
+        self.callback = callback
+        self.stats = {
+            'removidos': 0,
+            'ignorados': 0,
+            'total': 0,
+            'mensagens': []
+        }
     
-    # Seleciona todos os arquivos (Ctrl + A)
-    pyautogui.hotkey('ctrl', 'a')
-    time.sleep(0.5)
-
-    # Pressiona Delete para excluir
-    pyautogui.press('delete')
-    time.sleep(1)
-
-    # Tenta confirmar a exclusão se aparecer janela de confirmação
-    try:
-        pyautogui.press('enter')
-        time.sleep(1)
+    def log(self, mensagem):
+        """Registra mensagem e envia para callback se existir"""
+        print(mensagem)
+        self.stats['mensagens'].append(mensagem)
+        if self.callback:
+            self.callback(mensagem)
+    
+    def abrir_executar_e_abrir_temp(self):
+        """Abre a pasta temporária via Executar"""
+        self.log("Abrindo Executar e pasta temporária...")
+        try:
+            pyautogui.hotkey('win', 'r')
+            time.sleep(1)
+            pyautogui.write('temp', interval=0.05)
+            pyautogui.press('enter')
+            time.sleep(3)
+            self.log("Pasta temporária aberta com sucesso")
+        except Exception as e:
+            self.log(f"Erro ao abrir pasta: {e}")
+    
+    def tratar_janela_erro(self):
+        """Trata janelas de erro com foco em marcar 'Fazer isso para todos'"""
+        self.log("Tratando possíveis janelas de erro...")
         
-        # Se aparecer janela de erro ou permissão, pressiona "Pular" ou "Ignorar"
-        # Tentativa de pressionar Tab + Enter para pular arquivos protegidos
-        pyautogui.press('tab')
-        time.sleep(0.2)
-        pyautogui.press('enter')
-        time.sleep(1)
-    except:
-        pass
-
-def remover_protecao_arquivo(caminho):
-    """Remove proteção de escrita de um arquivo"""
-    try:
-        # Remove atributo de somente leitura
-        os.chmod(caminho, stat.S_IWRITE)
-        return True
-    except:
-        return False
-
-def excluir_arquivos_temp_python():
-    """Método Python para excluir arquivos temporários com tratamento robusto de erros"""
-    pasta_temp = tempfile.gettempdir()
-    arquivos_excluidos = 0
-    arquivos_ignorados = 0
-    pastas_excluidas = 0
-    pastas_ignoradas = 0
+        try:
+            time.sleep(1)
+            
+            # Tenta Tab para encontrar e marcar a checkbox "Fazer isso para todos"
+            for tentativa in range(3):
+                try:
+                    # Navega até a checkbox (geralmente a primeira opção focável)
+                    pyautogui.press('tab')
+                    time.sleep(0.2)
+                    
+                    # Marca a checkbox com Space
+                    pyautogui.press('space')
+                    self.log(f"Checkbox marcada (tentativa {tentativa + 1})")
+                    time.sleep(0.5)
+                    break
+                except Exception as e:
+                    self.log(f"Tentativa {tentativa + 1} falhou: {e}")
+                    time.sleep(0.5)
+            
+            # Navega para o botão "Ignorar" e clica
+            for _ in range(4):
+                pyautogui.press('tab')
+                time.sleep(0.1)
+            
+            pyautogui.press('enter')
+            time.sleep(1)
+            self.log("Botão Ignorar acionado")
+            
+        except Exception as e:
+            self.log(f"Erro ao tratar janela: {e}")
     
-    print(f"Limpando pasta: {pasta_temp}")
-    
-    try:
-        itens = list(os.listdir(pasta_temp))
-        total_itens = len(itens)
-        print(f"Total de itens encontrados: {total_itens}")
+    def selecionar_e_excluir_interface(self):
+        """Seleciona e exclui arquivos via interface gráfica"""
+        self.log("Iniciando exclusão via interface...")
         
-        for i, item in enumerate(itens, 1):
-            caminho = os.path.join(pasta_temp, item)
+        try:
+            # Seleciona todos os arquivos
+            pyautogui.hotkey('ctrl', 'a')
+            time.sleep(0.5)
+            self.log("Todos os arquivos selecionados")
             
-            # Mostra progresso a cada 50 itens
-            if i % 50 == 0 or i == total_itens:
-                print(f"Processando item {i}/{total_itens}...")
+            # Pressiona Delete
+            pyautogui.press('delete')
+            time.sleep(1)
             
-            try:
-                if os.path.isfile(caminho) or os.path.islink(caminho):
-                    # Tenta remover proteção antes de excluir
-                    if os.path.exists(caminho):
-                        remover_protecao_arquivo(caminho)
-                        os.remove(caminho)
-                        arquivos_excluidos += 1
+            # Confirmação inicial
+            pyautogui.press('enter')
+            time.sleep(2)
+            
+            # Aguarda e trata múltiplas janelas de erro
+            self.log("Aguardando possíveis janelas de erro...")
+            time.sleep(3)
+            
+            for i in range(15):  # Máximo 15 janelas de erro
+                try:
+                    # Verifica se ainda há janela ativa
+                    current_window = pyautogui.getActiveWindow()
+                    
+                    if (current_window and 
+                        any(keyword in current_window.title.lower() 
+                            for keyword in ['erro', 'error', 'excluir', 'delete', 'confirm'])):
                         
-                elif os.path.isdir(caminho):
-                    # Tenta excluir diretório recursivamente
-                    def handle_remove_readonly(func, path, exc):
-                        """Handler para remover proteção de arquivos somente leitura"""
-                        if os.path.exists(path):
-                            os.chmod(path, stat.S_IWRITE)
-                            func(path)
-                    
-                    shutil.rmtree(caminho, onerror=handle_remove_readonly)
-                    pastas_excluidas += 1
-                    
-            except PermissionError:
-                # Arquivo em uso ou sem permissão
-                if os.path.isfile(caminho):
-                    arquivos_ignorados += 1
-                else:
-                    pastas_ignoradas += 1
-                continue
-                
-            except FileNotFoundError:
-                # Arquivo já foi excluído
-                continue
-                
-            except OSError as e:
-                # Outros erros do sistema (nome muito longo, caracteres inválidos, etc.)
-                if os.path.isfile(caminho):
-                    arquivos_ignorados += 1
-                else:
-                    pastas_ignoradas += 1
-                continue
-                
-            except Exception:
-                # Qualquer outro erro
-                if os.path.isfile(caminho):
-                    arquivos_ignorados += 1
-                else:
-                    pastas_ignoradas += 1
-                continue
-                
-    except Exception as e:
-        print(f"Erro ao acessar pasta temporária: {e}")
-        return
+                        self.log(f"Janela de erro detectada: {current_window.title}")
+                        self.tratar_janela_erro()
+                        time.sleep(2)
+                    else:
+                        break
+                        
+                except Exception as e:
+                    self.log(f"Erro na iteração {i + 1}: {e}")
+                    # Tenta método alternativo
+                    pyautogui.press('i')  # Ignorar
+                    time.sleep(0.5)
+                    pyautogui.press('enter')
+                    time.sleep(1)
+            
+            self.log("Exclusão via interface concluída")
+            
+        except Exception as e:
+            self.log(f"Erro durante exclusão: {e}")
     
-    # Relatório final
-    print("\n" + "="*50)
-    print("RELATÓRIO DE LIMPEZA")
-    print("="*50)
-    print(f"Arquivos excluídos: {arquivos_excluidos}")
-    print(f"Arquivos ignorados: {arquivos_ignorados}")
-    print(f"Pastas excluídas: {pastas_excluidas}")
-    print(f"Pastas ignoradas: {pastas_ignoradas}")
-    print(f"Total processado: {arquivos_excluidos + arquivos_ignorados + pastas_excluidas + pastas_ignoradas}")
-
-def limpar_outras_pastas_temp():
-    """Limpa outras pastas temporárias comuns do Windows"""
-    pastas_adicionais = [
-        os.path.expandvars(r'%USERPROFILE%\AppData\Local\Temp'),
-        os.path.expandvars(r'%WINDIR%\Temp'),
-        os.path.expandvars(r'%USERPROFILE%\Recent'),
-    ]
-    
-    for pasta in pastas_adicionais:
-        if os.path.exists(pasta) and pasta != tempfile.gettempdir():
-            print(f"\nLimpando pasta adicional: {pasta}")
-            try:
-                for item in os.listdir(pasta):
-                    caminho = os.path.join(pasta, item)
-                    try:
-                        if os.path.isfile(caminho):
-                            remover_protecao_arquivo(caminho)
-                            os.remove(caminho)
-                        elif os.path.isdir(caminho):
+    def excluir_arquivos_python(self):
+        """Exclui arquivos restantes via Python com tratamento robusto de erros"""
+        self.log("\nIniciando limpeza via Python...")
+        
+        pasta_temp = tempfile.gettempdir()
+        arquivos_removidos = 0
+        arquivos_ignorados = 0
+        
+        try:
+            # Primeira passagem: arquivos
+            self.log(f"Pasta temporária: {pasta_temp}")
+            itens = os.listdir(pasta_temp)
+            self.stats['total'] = len(itens)
+            self.log(f"Total de itens a processar: {len(itens)}")
+            
+            for i, item in enumerate(itens):
+                caminho = os.path.join(pasta_temp, item)
+                
+                try:
+                    # Tenta remover arquivo ou link simbólico
+                    if os.path.isfile(caminho) or os.path.islink(caminho):
+                        os.remove(caminho)
+                        arquivos_removidos += 1
+                        
+                    # Tenta remover diretório
+                    elif os.path.isdir(caminho):
+                        try:
                             shutil.rmtree(caminho, ignore_errors=True)
-                    except:
-                        continue  # Ignora erros silenciosamente
-            except:
-                print(f"Não foi possível acessar: {pasta}")
+                            arquivos_removidos += 1
+                        except Exception:
+                            arquivos_ignorados += 1
+                    
+                    # Mostra progresso
+                    if (i + 1) % 50 == 0:
+                        progresso = f"Processados: {i + 1}/{len(itens)}"
+                        self.log(progresso)
+                        
+                except PermissionError:
+                    # Arquivo em uso ou sem permissão - ignora silenciosamente
+                    arquivos_ignorados += 1
+                    
+                except Exception:
+                    # Qualquer outro erro - ignora silenciosamente
+                    arquivos_ignorados += 1
+            
+            self.stats['removidos'] = arquivos_removidos
+            self.stats['ignorados'] = arquivos_ignorados
+            
+            self.log(f"\n✓ Arquivos/pastas removidos: {arquivos_removidos}")
+            self.log(f"⊘ Arquivos/pastas ignorados (em uso): {arquivos_ignorados}")
+            
+        except Exception as e:
+            self.log(f"Erro ao acessar pasta temp: {e}")
+    
+    def executar_completo(self):
+        """Executa o processo completo de limpeza"""
+        self.log("=" * 60)
+        self.log("LIMPADOR DE ARQUIVOS TEMPORÁRIOS - VERSÃO REFINADA")
+        self.log("=" * 60)
+        
+        try:
+            # Método 1: Interface gráfica
+            self.log("\n[ETAPA 1] Tentando limpeza via interface...")
+            self.abrir_executar_e_abrir_temp()
+            self.selecionar_e_excluir_interface()
+            
+        except Exception as e:
+            self.log(f"Aviso: Erro na limpeza via interface: {e}")
+        
+        try:
+            # Método 2: Limpeza via Python (sempre executado)
+            self.log("\n[ETAPA 2] Executando limpeza complementar via Python...")
+            self.excluir_arquivos_python()
+            
+        except Exception as e:
+            self.log(f"Erro durante limpeza Python: {e}")
+        
+        self.log("\n" + "=" * 60)
+        self.log("PROCESSO CONCLUÍDO COM SUCESSO!")
+        self.log("=" * 60)
+        
+        return self.stats
 
-def main():
-    print("="*60)
-    print("LIMPADOR DE ARQUIVOS TEMPORÁRIOS")
-    print("="*60)
-    
-    resposta = input("Deseja usar interface gráfica também? (s/n): ").lower().strip()
-    
-    if resposta in ['s', 'sim', 'y', 'yes']:
-        print("\n1. Abrindo interface gráfica...")
-        abrir_executar_e_abrir_temp()
-        
-        print("2. Tentando excluir via interface...")
-        selecionar_e_excluir_arquivos()
-        
-        # Pausa para o usuário fechar a janela se necessário
-        input("\nPressione Enter após fechar a janela do Explorer para continuar...")
-    
-    print("\n3. Executando limpeza via Python...")
-    excluir_arquivos_temp_python()
-    
-    resposta_extra = input("\nDeseja limpar pastas temporárias adicionais? (s/n): ").lower().strip()
-    if resposta_extra in ['s', 'sim', 'y', 'yes']:
-        print("\n4. Limpando pastas adicionais...")
-        limpar_outras_pastas_temp()
-    
-    print("\n" + "="*50)
-    print("PROCESSO CONCLUÍDO!")
-    print("="*50)
-    print("Todos os arquivos possíveis foram excluídos.")
-    print("Arquivos em uso ou protegidos foram automaticamente ignorados.")
-    
-    input("\nPressione Enter para finalizar...")
+def executar_limpeza(callback=None):
+    """Função wrapper para usar em APIs"""
+    cleaner = TempCleaner(callback=callback)
+    return cleaner.executar_completo()
 
 if __name__ == "__main__":
-    main()
+    # Execução direta
+    stats = executar_limpeza()
+    print("\n" + "=" * 60)
+    print("RESUMO FINAL:")
+    print(f"Removidos: {stats['removidos']}")
+    print(f"Ignorados: {stats['ignorados']}")
+    print("=" * 60)
